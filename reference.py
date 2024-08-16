@@ -194,6 +194,7 @@ class Llama:
 
         stop_tokens = torch.tensor(list(self.tokenizer.stop_tokens))
 
+        # add torch.profiler for inference
         with torch.profiler.profile(
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/ref'),

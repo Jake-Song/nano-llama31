@@ -480,6 +480,7 @@ class Llama:
 
         stop_tokens = torch.tensor(list(self.tokenizer.stop_tokens))
 
+        # add torch.profiler for inference
         with torch.profiler.profile(
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/local_inference'),
@@ -692,6 +693,7 @@ def main(
     model.train()
     optimizer = model.configure_optimizers(learning_rate=1e-5, weight_decay=0.0)
 
+    # add torch.profiler for training
     with torch.profiler.profile(
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/local_train'),
@@ -701,6 +703,7 @@ def main(
         ) as prof:
 
     for step in range(20):
+        prof.step()
         optimizer.zero_grad()
         x, y = data_loader.next_batch()
         x, y = x.cuda(), y.cuda()
