@@ -482,7 +482,7 @@ class Llama:
 
         with torch.profiler.profile(
                 schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/inference'),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/local_inference'),
                 record_shapes=True,
                 profile_memory=True,
                 with_stack=True
@@ -691,6 +691,15 @@ def main(
     model = llama.model
     model.train()
     optimizer = model.configure_optimizers(learning_rate=1e-5, weight_decay=0.0)
+
+    with torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/local_train'),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True
+        ) as prof:
+
     for step in range(20):
         optimizer.zero_grad()
         x, y = data_loader.next_batch()
