@@ -194,33 +194,42 @@ class Llama:
 
         stop_tokens = torch.tensor(list(self.tokenizer.stop_tokens))
 
-        for cur_pos in range(min_prompt_len, total_len):
-            logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
-            if temperature > 0:
-                probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
-                next_token = sample_top_p(probs, top_p, generator=sample_rng)
-            else:
-                next_token = torch.argmax(logits[:, -1], dim=-1)
+        with torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/inference'),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True
+        ) as prof:
 
-            next_token = next_token.reshape(-1)
-            # only replace token if prompt has already been generated
-            next_token = torch.where(
-                input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
-            )
-            tokens[:, cur_pos] = next_token
-            if logprobs:
-                token_logprobs[:, prev_pos + 1 : cur_pos + 1] = -F.cross_entropy(
-                    input=logits.transpose(1, 2),
-                    target=tokens[:, prev_pos + 1 : cur_pos + 1],
-                    reduction="none",
-                    ignore_index=pad_id,
+            for cur_pos in range(min_prompt_len, total_len):
+                prof.step()
+                logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+                if temperature > 0:
+                    probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
+                    next_token = sample_top_p(probs, top_p, generator=sample_rng)
+                else:
+                    next_token = torch.argmax(logits[:, -1], dim=-1)
+
+                next_token = next_token.reshape(-1)
+                # only replace token if prompt has already been generated
+                next_token = torch.where(
+                    input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
                 )
-            eos_reached |= (~input_text_mask[:, cur_pos]) & (
-                torch.isin(next_token, stop_tokens)
-            )
-            prev_pos = cur_pos
-            if all(eos_reached):
-                break
+                tokens[:, cur_pos] = next_token
+                if logprobs:
+                    token_logprobs[:, prev_pos + 1 : cur_pos + 1] = -F.cross_entropy(
+                        input=logits.transpose(1, 2),
+                        target=tokens[:, prev_pos + 1 : cur_pos + 1],
+                        reduction="none",
+                        ignore_index=pad_id,
+                    )
+                eos_reached |= (~input_text_mask[:, cur_pos]) & (
+                    torch.isin(next_token, stop_tokens)
+                )
+                prev_pos = cur_pos
+                if all(eos_reached):
+                    break
 
         if logprobs:
             token_logprobs = token_logprobs.tolist()

@@ -1,0 +1,5 @@
+Meta-Llama-3.1-8B/
+__pycache__/
+llama-models/
+log/
+tinystories/

@@ -23,6 +23,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, TypedDict
 import torch
+import torch.profiler
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
@@ -479,27 +480,36 @@ class Llama:
 
         stop_tokens = torch.tensor(list(self.tokenizer.stop_tokens))
 
-        for cur_pos in range(min_prompt_len, total_len):
-            # get the logits for the next token in all the batch rows
-            logits = self.model.forward_inference(tokens[:, prev_pos:cur_pos], prev_pos)
-            # sample the next token
-            if temperature > 0:
-                probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
-                next_token = sample_top_p(probs, top_p, sample_rng)
-            else:
-                next_token = torch.argmax(logits[:, -1], dim=-1)
-            next_token = next_token.reshape(-1)
-            # only replace token if prompt has already been generated
-            next_token = torch.where(
-                input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
-            )
-            tokens[:, cur_pos] = next_token
-            eos_reached |= (~input_text_mask[:, cur_pos]) & (
-                torch.isin(next_token, stop_tokens)
-            )
-            prev_pos = cur_pos
-            if all(eos_reached):
-                break
+        with torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/inference'),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True
+        ) as prof:
+
+            for cur_pos in range(min_prompt_len, total_len):
+                prof.step()
+                # get the logits for the next token in all the batch rows
+                logits = self.model.forward_inference(tokens[:, prev_pos:cur_pos], prev_pos)
+                # sample the next token
+                if temperature > 0:
+                    probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
+                    next_token = sample_top_p(probs, top_p, sample_rng)
+                else:
+                    next_token = torch.argmax(logits[:, -1], dim=-1)
+                next_token = next_token.reshape(-1)
+                # only replace token if prompt has already been generated
+                next_token = torch.where(
+                    input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
+                )
+                tokens[:, cur_pos] = next_token
+                eos_reached |= (~input_text_mask[:, cur_pos]) & (
+                    torch.isin(next_token, stop_tokens)
+                )
+                prev_pos = cur_pos
+                if all(eos_reached):
+                    break
 
         out_tokens = []
         for i, toks in enumerate(tokens.tolist()):
